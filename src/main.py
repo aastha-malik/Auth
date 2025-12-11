@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,8 @@ from schemas import (
 )
 from starlette.responses import RedirectResponse
 from oauth import oauth
+from dotenv import load_dotenv
+load_dotenv()
 
 # ---------------------------------------------------
 # DATABASE & APP SETUP
@@ -26,6 +29,8 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+app.add_middleware(SessionMiddleware, secret_key="auth")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,6 +38,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 def get_db():
@@ -54,9 +60,93 @@ def read_root():
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 @app.get("/login/google")
-async def login_with_google(request: Request):
+async def google_login(request: Request):
     redirect_uri = request.url_for("google_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get("/login/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    # Step 1: Exchange code for tokens
+    token = await oauth.google.authorize_access_token(request)
+
+    # Step 2: Extract user info from Google
+    user_info = token.get("userinfo")
+    if user_info is None:
+        user_info = await oauth.google.parse_id_token(request, token)
+
+    # Debug print
+    print("Google user info:", user_info)
+    
+#extract email, sub
+    user_email = user_info["email"]
+    user_sub = user_info["sub"]
+    
+    user = db.query(User).filter(User.email == user_email).first()
+    # in case of login
+    if user:
+        data = {
+            "sub": user.id,
+        }
+
+        jwt_token = auth_crud.create_access_token(data, expires_delta=timedelta(minutes=30))
+
+        return {
+            "status":"login",
+            "access_token": jwt_token,
+            "token_type": "bearer", 
+
+            "user_info" : {
+                "email":user.email,
+                "username":user.username,
+                "sub": user.id,
+                }
+            
+            }
+    # in case of creating account
+    username = user_email.split("@")[0]
+    count = 1
+
+
+    while db.query(User).filter(User.username == username).first():
+        username = f"{username}_{count}"
+        count += 1
+
+    new_user = User(
+        username=username,
+        hashed_password="", 
+        email=email, 
+        user_verification=True, 
+        start_acc_time= datetime.utcnow(), 
+        provider="google",
+        provider_id=user_sub
+        )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    data = {  "sub": str(new_user.id)  }
+    
+    jwt_token = auth_crud.create_access_token(data, expires_delta=timedelta(minutes=30))
+
+    return {
+        "status":"create_account",
+        "access_token": jwt_token,
+        "token_type": "bearer", 
+
+        "user_info" : {
+            "email":user.email,
+            "username":user.username,
+            "sub": user.id,
+            "provider": "google",
+            "provider_id": user_sub,
+            "user_verified": True,
+            }
+        
+        }
+    
+    
+    
+
 
 @app.post("/login", response_model=TokenResponse)
 def login(

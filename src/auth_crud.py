@@ -18,7 +18,7 @@ ACCESS_TOKEN_EXPIRE_DAYS = 30
 MAX_PASSWORD_LENGTH = 72
 
 # creating user => registration part
-def create_user(db:Session, username:str, plain_password:str, email:str):
+def create_user(db:Session, username:str, plain_password:str, email:str,):
     email_token = random.randint(99999, 1000000)
     hashed_password = pwd_context.hash(plain_password[:72])
     new_user = User( username=username, hashed_password=hashed_password, email=email, user_verification_token=str(email_token), start_acc_time= datetime.utcnow())

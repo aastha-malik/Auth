@@ -1,5 +1,7 @@
 from authlib.integrations.starlette_client import OAuth
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 
 oauth = OAuth()
@@ -16,3 +18,4 @@ oauth.register(
         "scope": "openid email profile"
     }
 )
+print("Client ID is:", os.environ.get("GOOGLE_CLIENT_ID"))
