@@ -19,6 +19,7 @@ from schemas import (
 from starlette.responses import RedirectResponse
 from oauth import oauth
 from dotenv import load_dotenv
+import uuid
 load_dotenv()
 
 # ---------------------------------------------------
@@ -53,23 +54,61 @@ def get_db():
 def read_root():
     return {"message": "This is Manager side of our app Auth!!"}
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+login_sessions = {}   
+
+#if the fe is web application then there is no needd for this local_sessions dict and the start_google_login function and google_login_status function remove them both entirely...
+
+
 # ---------------------------------------------------
 # AUTH ROUTES (LOGIN / PASSWORD / OTP)
 # ---------------------------------------------------
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 @app.get("/login/google")
 async def google_login(request: Request):
     redirect_uri = request.url_for("google_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
+@app.get("/login/google/start")
+def start_google_login(request:Request):     
+    session_id = str(uuid.uuid4())
+    login_sessions[session_id] = { "status": "pending", "jwt": None }
+    login_url = request.url_for("google_login") + f"?session_id={session_id}"
+    return {
+        "session_id":session_id,
+        "login_url":login_url
+    }
+
+
+@app.get("/login/google/status")
+def google_login_status(session_id: str):
+    session = login_sessions.get(session_id)
+
+    if session is None:
+        return {"status": "invalid_session"}
+
+    if session["status"] == "pending":
+        return {"status": "pending"}
+
+    if session["status"] == "success":
+        return {
+            "status": "success",
+            "access_token": session["jwt"],
+            "token_type": "bearer"
+        }
+
+
 @app.get("/login/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
-    # Step 1: Exchange code for tokens
+    session_id = request.query_params.get("session_id")
+    
+
+    # S1: Exchange code for tokens
     token = await oauth.google.authorize_access_token(request)
 
-    # Step 2: Extract user info from Google
+    # S2: Extract user info from Google
     user_info = token.get("userinfo")
     if user_info is None:
         user_info = await oauth.google.parse_id_token(request, token)
@@ -83,69 +122,48 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     
     user = db.query(User).filter(User.email == user_email).first()
     # in case of login
-    if user:
-        data = {
-            "sub": user.id,
-        }
+    if not user:
+        base_username = user_email.split("@")[0]
+        username = base_username
+        count = 1
 
-        jwt_token = auth_crud.create_access_token(data, expires_delta=timedelta(minutes=30))
 
-        return {
-            "status":"login",
-            "access_token": jwt_token,
-            "token_type": "bearer", 
+        while db.query(User).filter(User.username == username).first():
+            username = f"{base_username}_{count}"
+            count += 1
 
-            "user_info" : {
-                "email":user.email,
-                "username":user.username,
-                "sub": user.id,
-                }
-            
-            }
+        new_user = User(
+            username=username,
+            hashed_password="", 
+            email=user_email, 
+            user_verified=True, 
+            start_acc_time= datetime.utcnow(), 
+            provider="google",
+            provider_id=user_sub
+            )
+
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        data = {  "sub": str(new_user.id)  }
+        
+
     # in case of creating account
-    username = user_email.split("@")[0]
-    count = 1
+    data = {   "sub": user.id  }
 
-
-    while db.query(User).filter(User.username == username).first():
-        username = f"{username}_{count}"
-        count += 1
-
-    new_user = User(
-        username=username,
-        hashed_password="", 
-        email=email, 
-        user_verification=True, 
-        start_acc_time= datetime.utcnow(), 
-        provider="google",
-        provider_id=user_sub
-        )
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    data = {  "sub": str(new_user.id)  }
-    
     jwt_token = auth_crud.create_access_token(data, expires_delta=timedelta(minutes=30))
 
-    return {
-        "status":"create_account",
-        "access_token": jwt_token,
-        "token_type": "bearer", 
+ # if the fe is web application then remove the whole sessionID logic & html_response and replace it with this code give below in comments
+    # # 4. Redirect to frontend with JWT
+    # redirect_url = f"http://localhost:3000/auth/success?token={jwt_token}"
 
-        "user_info" : {
-            "email":user.email,
-            "username":user.username,
-            "sub": user.id,
-            "provider": "google",
-            "provider_id": user_sub,
-            "user_verified": True,
-            }
-        
-        }
-    
-    
-    
+    # return RedirectResponse(redirect_url)
+
+    if session_id and session_id in login_sessions:
+        login_sessions[session_id]["status"] = "success"
+        login_sessions[session_id]["jwt"] = jwt_token
+
+    return HTMLResponse("<h2>Login / Account created successfully. You may close this window.</h2>")
 
 
 @app.post("/login", response_model=TokenResponse)

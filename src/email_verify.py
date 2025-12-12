@@ -6,11 +6,8 @@ from email.mime.multipart import MIMEMultipart
 from sqlalchemy.orm import Session
 from models import User
 import random
-
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-EMAIL_ADDRESS = "aasthamalik1810@gmail.com"
-EMAIL_PASSWORD = "hpesvflhowhzmzqp"
+from dotenv import load_dotenv
+load_dotenv()
 
 def send_email(to_email, subject, body):
     msg = MIMEMultipart()
