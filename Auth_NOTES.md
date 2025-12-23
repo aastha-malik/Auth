@@ -1,7 +1,7 @@
 ﻿> These notes are written for learning and reference purposes.
 > They summarize authentication concepts as implemented in backend systems using FastAPI.
 
-#AUTHENTICATION
+# AUTHENTICATION
 ________________________________________________
 
 
@@ -247,6 +247,7 @@ Everything ends with:
 👉 your own session
 👉 your own user stored in DB
 ________________
+
 
 
 And that’s it … byee
