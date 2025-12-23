@@ -75,6 +75,7 @@ async def google_login(request: Request):
 def start_google_login(request:Request):     
     session_id = str(uuid.uuid4())
     login_sessions[session_id] = { "status": "pending", "jwt": None }
+    # request.url_for("google_login") => means url of function google_login
     login_url = request.url_for("google_login") + f"?session_id={session_id}"
     return {
         "session_id":session_id,
@@ -102,6 +103,9 @@ def google_login_status(session_id: str):
 
 @app.get("/login/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
+    # query_params => 
+    # means:::::  /login/google/callback?session_id=xyz&code=abc
+    #Everything after ? is query parameters.
     session_id = request.query_params.get("session_id")
     
 
@@ -115,7 +119,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
     # Debug print
     print("Google user info:", user_info)
-    
+        
 #extract email, sub
     user_email = user_info["email"]
     user_sub = user_info["sub"]
